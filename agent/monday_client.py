@@ -35,14 +35,12 @@ class MondayClient:
         deals_board_id: str | None = None,
         cache_ttl: int = 300,
     ):
-        self.token = token or os.getenv("MONDAY_API_TOKEN", "")
-        self.work_orders_board_id = work_orders_board_id or os.getenv("MONDAY_WORK_ORDERS_BOARD_ID", "")
-        self.deals_board_id = deals_board_id or os.getenv("MONDAY_DEALS_BOARD_ID", "")
+        self.token = token
+        self.work_orders_board_id = work_orders_board_id
+        self.deals_board_id = deals_board_id
         self.cache_ttl = cache_ttl
         self._cache: dict[str, tuple[float, Any]] = {}
-        self.headers = {
-            "Authorization": self.token,
-            "Content-Type": "application/json",
+
     def get_token(self) -> str:
         return self.token or os.getenv("MONDAY_API_TOKEN", "")
 
@@ -71,7 +69,6 @@ class MondayClient:
                     time.sleep(2 ** attempt)
                     continue
                 raise MondayAPIError(f"Network error reaching monday.com: {exc}") from exc
-
 
             if resp.status_code in (429, 500, 502, 503, 504):
                 if attempt < retries:
@@ -133,86 +130,112 @@ class MondayClient:
             return cached
 
         query = """
-        query ($boardId: [ID!]) {
-            boards(ids: $boardId) {
-                columns { id title type }
+        query ($board_id: [ID!]!) {
+          boards(ids: $board_id) {
+            columns {
+              id
+              title
+              type
             }
+          }
         }
         """
-        data = self._request(query, {"boardId": [board_id]})
-        cols = data["data"]["boards"][0]["columns"] if data["data"]["boards"] else []
-        self._set_cache(cache_key, cols)
-        return cols
+        data = self._request(query, {"board_id": [board_id]})
+        columns = data.get("data", {}).get("boards", [{}])[0].get("columns", [])
+        self._set_cache(cache_key, columns)
+        return columns
 
-    def get_board_items(self, board_id: str) -> list[dict]:
-        """Fetch all items from a board with cursor-based pagination."""
+    def get_board_items(self, board_id: str) -> pd.DataFrame:
+        """Fetch all items from a board with pagination."""
         cache_key = self._cache_key(board_id)
         cached = self._get_cached(cache_key)
         if cached is not None:
             return cached
 
-        all_items: list[dict] = []
+        all_items: list[dict[str, Any]] = []
         cursor: str | None = None
 
         while True:
-            variables: dict[str, Any] = {"boardId": [board_id], "cursor": cursor}
-            query = """
-            query ($boardId: [ID!], $cursor: String) {
-                boards(ids: $boardId) {
-                    name
-                    items_page(limit: 500, cursor: $cursor) {
-                        cursor
-                        items {
-                            id
-                            name
-                            column_values {
-                                id
-                                column { title }
-                                text
-                                value
-                            }
-                        }
+            if cursor:
+                query = """
+                query ($cursor: String!) {
+                  next_items_page(cursor: $cursor, limit: 100) {
+                    cursor
+                    items {
+                      id
+                      name
+                      column_values {
+                        id
+                        text
+                        value
+                      }
                     }
+                  }
                 }
-            }
-            """
-            data = self._request(query, variables)
-            boards = data.get("data", {}).get("boards", [])
-            if not boards:
+                """
+                res = self._request(query, {"cursor": cursor})
+                page_data = res.get("data", {}).get("next_items_page", {})
+            else:
+                query = """
+                query ($board_id: [ID!]!) {
+                  boards(ids: $board_id) {
+                    items_page(limit: 100) {
+                      cursor
+                      items {
+                        id
+                        name
+                        column_values {
+                          id
+                          text
+                          value
+                        }
+                      }
+                    }
+                  }
+                }
+                """
+                res = self._request(query, {"board_id": [board_id]})
+                boards = res.get("data", {}).get("boards", [])
+                if not boards:
+                    break
+                page_data = boards[0].get("items_page", {})
+
+            items = page_data.get("items", [])
+            cursor = page_data.get("cursor")
+
+            for item in items:
+                row: dict[str, Any] = {
+                  "item_id": item.get("id"),
+                  "item_name": item.get("name"),
+                }
+                for cv in item.get("column_values", []):
+                    col_id = cv.get("id")
+                    text_val = cv.get("text")
+                    row[col_id] = text_val
+                all_items.append(row)
+
+            if not cursor or not items:
                 break
 
-            page = boards[0]["items_page"]
-            all_items.extend(page["items"])
-            cursor = page.get("cursor")
-            if not cursor:
-                break
+        df = pd.DataFrame(all_items)
+        if not df.empty:
+            schema = self.get_board_schema(board_id)
+            rename_map = {col["id"]: col["title"] for col in schema}
+            df = df.rename(columns=rename_map)
 
-        self._set_cache(cache_key, all_items)
-        return all_items
-
-    def boards_to_dataframe(self, items: list[dict]) -> pd.DataFrame:
-        """Flatten monday.com items into a wide DataFrame keyed by column title."""
-        rows = []
-        for item in items:
-            row: dict[str, Any] = {"item_id": item["id"], "item_name": item["name"]}
-            for cv in item.get("column_values", []):
-                title = cv["column"]["title"]
-                # Prefer 'text' for display; fall back to parsed 'value'
-                text_val = cv.get("text") or ""
-                row[title] = text_val
-            rows.append(row)
-        return pd.DataFrame(rows)
+        self._set_cache(cache_key, df)
+        return df
 
     def get_work_orders(self) -> pd.DataFrame:
-        """Fetch and flatten the Work Orders board."""
-        if not self.work_orders_board_id:
+        """Fetch and return Work Orders dataframe."""
+        board_id = self.get_work_orders_board_id()
+        if not board_id:
             raise MondayAPIError("MONDAY_WORK_ORDERS_BOARD_ID is not configured.")
-        items = self.get_board_items(self.work_orders_board_id)
-        return self.boards_to_dataframe(items)
+        return self.get_board_items(board_id)
 
     def get_deals(self) -> pd.DataFrame:
-        """Fetch and flatten the Deals board."""
-        if not self.deals_board_id:
+        """Fetch and return Deals dataframe."""
+        board_id = self.get_deals_board_id()
+        if not board_id:
             raise MondayAPIError("MONDAY_DEALS_BOARD_ID is not configured.")
-        items = self.get_board_items(self.deals_board_id)
-        return self.boards_to_dataframe(items)
+        return self.get_board_items(board_id)
