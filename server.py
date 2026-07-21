@@ -61,10 +61,11 @@ def get_status():
 
     return {
         "connected": connected,
-        "work_orders_board_id": monday_client.work_orders_board_id,
-        "deals_board_id": monday_client.deals_board_id,
+        "work_orders_board_id": monday_client.get_work_orders_board_id(),
+        "deals_board_id": monday_client.get_deals_board_id(),
         "model": llm_client.model,
     }
+
 
 
 @app.get("/api/metrics")

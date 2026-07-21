@@ -43,26 +43,35 @@ class MondayClient:
         self.headers = {
             "Authorization": self.token,
             "Content-Type": "application/json",
-            "API-Version": "2024-10",
-        }
+    def get_token(self) -> str:
+        return self.token or os.getenv("MONDAY_API_TOKEN", "")
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+    def get_work_orders_board_id(self) -> str:
+        return self.work_orders_board_id or os.getenv("MONDAY_WORK_ORDERS_BOARD_ID", "")
+
+    def get_deals_board_id(self) -> str:
+        return self.deals_board_id or os.getenv("MONDAY_DEALS_BOARD_ID", "")
 
     def _request(self, query: str, variables: dict | None = None, retries: int = 2) -> dict:
         payload: dict[str, Any] = {"query": query}
         if variables:
             payload["variables"] = variables
 
+        headers = {
+            "Authorization": self.get_token(),
+            "Content-Type": "application/json",
+            "API-Version": "2024-10",
+        }
+
         for attempt in range(retries + 1):
             try:
-                resp = requests.post(MONDAY_API_URL, json=payload, headers=self.headers, timeout=30)
+                resp = requests.post(MONDAY_API_URL, json=payload, headers=headers, timeout=30)
             except requests.RequestException as exc:
                 if attempt < retries:
                     time.sleep(2 ** attempt)
                     continue
                 raise MondayAPIError(f"Network error reaching monday.com: {exc}") from exc
+
 
             if resp.status_code in (429, 500, 502, 503, 504):
                 if attempt < retries:
