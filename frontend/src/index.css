@@ -513,8 +513,19 @@ body {
   }
 }
 
+.standalone-auth-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  width: 100vw;
+  background: var(--bg-gradient);
+  background-attachment: fixed;
+}
+
 /* Supabase Auth Modal Overlay */
 .auth-overlay {
+
   position: fixed;
   inset: 0;
   background: rgba(8, 10, 17, 0.88);

@@ -55,9 +55,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetchStatus();
-    fetchMetrics();
-  }, []);
+    if (session || isGuest) {
+      fetchStatus();
+      fetchMetrics();
+    }
+  }, [session, isGuest]);
 
   const fetchStatus = async () => {
     try {
@@ -158,16 +160,21 @@ export default function App() {
 
   const isAuthenticated = session || isGuest;
 
-  return (
-    <div className="app-layout">
-      {/* ── Render Supabase Auth Modal if not authenticated ── */}
-      {!isAuthenticated && (
+  // ── Standalone Login View when unauthenticated ──
+  if (!isAuthenticated) {
+    return (
+      <div className="standalone-auth-container">
         <AuthModal 
           onAuthSuccess={(s) => setSession(s)} 
           onGuestLogin={() => setIsGuest(true)} 
         />
-      )}
+      </div>
+    );
+  }
 
+  // ── Main Authenticated Dashboard Layout ──
+  return (
+    <div className="app-layout">
       {/* ── Navbar Header ── */}
       <header className="navbar glass-card">
         <div className="brand-section">
@@ -184,19 +191,17 @@ export default function App() {
             <span>{status.connected ? "monday.com Connected" : "Connecting..."}</span>
           </div>
 
-          {isAuthenticated && (
-            <div className="user-profile-badge">
-              <div className="user-avatar-small">
-                {(session?.user?.email?.[0] || 'G').toUpperCase()}
-              </div>
-              <span className="user-email-text">
-                {session?.user?.email || 'Demo Executive'}
-              </span>
-              <button className="logout-btn" title="Sign Out" onClick={handleSignOut}>
-                <LogOut size={14} />
-              </button>
+          <div className="user-profile-badge">
+            <div className="user-avatar-small">
+              {(session?.user?.email?.[0] || 'G').toUpperCase()}
             </div>
-          )}
+            <span className="user-email-text">
+              {session?.user?.email || 'Demo Executive'}
+            </span>
+            <button className="logout-btn" title="Sign Out" onClick={handleSignOut}>
+              <LogOut size={14} />
+            </button>
+          </div>
 
           <button className="action-btn" onClick={handleRefreshCache} title="Clear in-memory cache">
             <RefreshCw size={15} />
