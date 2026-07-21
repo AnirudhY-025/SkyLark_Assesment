@@ -108,13 +108,20 @@ def refresh_cache():
     return {"status": "success", "message": "Cache cleared successfully"}
 
 
-# SPA Static Assets & Route Handler
+from fastapi.responses import FileResponse, RedirectResponse
+
 BASE_DIR = Path(__file__).resolve().parent
 frontend_dist = BASE_DIR / "frontend" / "dist"
 
-assets_dir = frontend_dist / "assets"
-if assets_dir.exists():
-    app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+@app.get("/assets/{asset_name}")
+def serve_assets(asset_name: str):
+    """Serve static asset or redirect legacy cached JS bundles to root SPA."""
+    asset_file = frontend_dist / "assets" / asset_name
+    if asset_file.is_file():
+        res = FileResponse(asset_file)
+        res.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return res
+    return RedirectResponse(url="/", status_code=302)
 
 
 @app.get("/{full_path:path}")
@@ -139,6 +146,7 @@ def serve_spa(full_path: str):
         return response
 
     return {"message": "Skylark Drones BI Agent API is live. Build frontend/dist to view UI."}
+
 
 
 
