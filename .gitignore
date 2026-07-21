@@ -1,0 +1,13 @@
+# Environment variables & secrets
+.env
+
+# Python bytecode & cache
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# Node modules & build artifacts
+node_modules/
+dist/
+build/
