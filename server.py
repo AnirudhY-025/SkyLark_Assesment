@@ -129,9 +129,12 @@ def serve_spa(full_path: str):
 
     index_file = frontend_dist / "index.html"
     if index_file.exists():
-        return FileResponse(index_file)
+        response = FileResponse(index_file)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
 
     return {"message": "Skylark Drones BI Agent API is live. Build frontend/dist to view UI."}
+
 
 
 if __name__ == "__main__":
