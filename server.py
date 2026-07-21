@@ -13,6 +13,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 # Ensure project root is on sys.path
@@ -25,7 +26,7 @@ from agent.tools import generate_leadership_update
 
 app = FastAPI(title="Skylark Drones BI Agent API")
 
-# Enable CORS for local dev
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -84,8 +85,6 @@ def get_summary_metrics():
         return {"deals": {}, "work_orders": {}, "error": str(e)}
 
 
-
-
 @app.post("/api/chat")
 def chat(request: ChatRequest):
     """Run agent loop on conversation history."""
@@ -107,17 +106,28 @@ def refresh_cache():
     return {"status": "success", "message": "Cache cleared successfully"}
 
 
-from fastapi.responses import FileResponse
+# SPA Static Assets & Route Handler
+BASE_DIR = Path(__file__).resolve().parent
+frontend_dist = BASE_DIR / "frontend" / "dist"
 
-frontend_dist = Path(__file__).resolve().parent / "frontend" / "dist"
+assets_dir = frontend_dist / "assets"
+if assets_dir.exists():
+    app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
-@app.get("/")
-def serve_index():
-    index_path = frontend_dist / "index.html"
-    if index_path.exists():
-        return FileResponse(index_path)
-    return {"message": "Skylark Drones BI Agent API is live."}
 
-if frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="static")
+@app.get("/{full_path:path}")
+def serve_spa(full_path: str):
+    """Serve SPA index.html or static build files for all non-API paths."""
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API endpoint not found")
 
+    if full_path:
+        target_file = frontend_dist / full_path
+        if target_file.is_file():
+            return FileResponse(target_file)
+
+    index_file = frontend_dist / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+
+    return {"message": "Skylark Drones BI Agent API is live. Build frontend/dist to view UI."}
