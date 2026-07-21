@@ -107,7 +107,17 @@ def refresh_cache():
     return {"status": "success", "message": "Cache cleared successfully"}
 
 
-# Serve frontend static files if built
+from fastapi.responses import FileResponse
+
 frontend_dist = Path(__file__).resolve().parent / "frontend" / "dist"
+
+@app.get("/")
+def serve_index():
+    index_path = frontend_dist / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return {"message": "Skylark Drones BI Agent API is live."}
+
 if frontend_dist.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="static")
+

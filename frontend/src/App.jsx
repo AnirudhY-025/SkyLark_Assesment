@@ -9,7 +9,7 @@ import {
 import { supabase } from './lib/supabase';
 import AuthModal from './components/AuthModal';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = '';
 
 export default function App() {
   const [session, setSession] = useState(null);
