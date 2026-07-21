@@ -131,3 +131,9 @@ def serve_spa(full_path: str):
         return FileResponse(index_file)
 
     return {"message": "Skylark Drones BI Agent API is live. Build frontend/dist to view UI."}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("server:app", host="0.0.0.0", port=port)
