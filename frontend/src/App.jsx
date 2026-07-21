@@ -29,6 +29,7 @@ export default function App() {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [metricsLoading, setMetricsLoading] = useState(true);
   const [status, setStatus] = useState({ connected: false, work_orders_board_id: '', deals_board_id: '' });
   const [metrics, setMetrics] = useState(null);
   const [expandedTrace, setExpandedTrace] = useState({});
@@ -54,12 +55,19 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Fetch status and metrics immediately on mount and periodically if not connected
   useEffect(() => {
-    if (session || isGuest) {
-      fetchStatus();
-      fetchMetrics();
-    }
-  }, [session, isGuest]);
+    fetchStatus();
+    fetchMetrics();
+
+    const interval = setInterval(() => {
+      if (!status.connected) {
+        fetchStatus();
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchStatus = async () => {
     try {
@@ -68,10 +76,12 @@ export default function App() {
       setStatus(data);
     } catch (e) {
       console.error('Failed to fetch status:', e);
+      setStatus({ connected: false, work_orders_board_id: '', deals_board_id: '' });
     }
   };
 
   const fetchMetrics = async () => {
+    setMetricsLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/metrics`);
       const data = await res.json();
@@ -80,6 +90,8 @@ export default function App() {
       }
     } catch (e) {
       console.error('Failed to fetch metrics:', e);
+    } finally {
+      setMetricsLoading(false);
     }
   };
 
@@ -114,7 +126,7 @@ export default function App() {
         ...newMessages,
         {
           role: 'assistant',
-          content: data.response,
+          content: data.response || "⚠️ Response received but text content was empty.",
           tools_used: data.tools_used || []
         }
       ]);
@@ -123,7 +135,7 @@ export default function App() {
         ...newMessages,
         {
           role: 'assistant',
-          content: "⚠️ Sorry, I'm having trouble connecting to the backend server. Please make sure the API is running."
+          content: "⚠️ Connection error reaching the backend server. Please refresh the page or try again in a moment."
         }
       ]);
     } finally {
@@ -152,6 +164,7 @@ export default function App() {
   const woMetric = metrics?.work_orders || {};
 
   const formatCurrency = (val) => {
+    if (metricsLoading) return 'Loading...';
     if (!val) return '₹0';
     if (val >= 10000000) return `₹${(val / 10000000).toFixed(2)} Cr`;
     if (val >= 100000) return `₹${(val / 100000).toFixed(1)} L`;
@@ -223,7 +236,7 @@ export default function App() {
             <TrendingUp size={16} color="#00f2fe" />
           </div>
           <div className="metric-value">{formatCurrency(dealsMetric.pipeline_value)}</div>
-          <div className="metric-sub">{dealsMetric.open_deals || 0} active deals in pipeline</div>
+          <div className="metric-sub">{metricsLoading ? 'Fetching pipeline data...' : `${dealsMetric.open_deals || 0} active deals in pipeline`}</div>
         </div>
 
         <div className="glass-card metric-card glass-card-interactive">
@@ -232,7 +245,7 @@ export default function App() {
             <DollarSign size={16} color="#34d399" />
           </div>
           <div className="metric-value">{formatCurrency(woMetric.total_billed)}</div>
-          <div className="metric-sub">Across {woMetric.total_orders || 0} total work orders</div>
+          <div className="metric-sub">{metricsLoading ? 'Fetching work orders...' : `Across ${woMetric.total_orders || 0} total work orders`}</div>
         </div>
 
         <div className="glass-card metric-card glass-card-interactive">
@@ -240,8 +253,8 @@ export default function App() {
             <span>Overall Win Rate</span>
             <Activity size={16} color="#a855f7" />
           </div>
-          <div className="metric-value">{dealsMetric.win_rate_pct ? `${dealsMetric.win_rate_pct}%` : '0%'}</div>
-          <div className="metric-sub">{dealsMetric.won_count || 0} Won vs {dealsMetric.lost_count || 0} Lost</div>
+          <div className="metric-value">{metricsLoading ? 'Loading...' : (dealsMetric.win_rate_pct ? `${dealsMetric.win_rate_pct}%` : '0%')}</div>
+          <div className="metric-sub">{metricsLoading ? 'Calculating...' : `${dealsMetric.won_count || 0} Won vs ${dealsMetric.lost_count || 0} Lost`}</div>
         </div>
 
         <div className="glass-card metric-card glass-card-interactive">
@@ -250,7 +263,7 @@ export default function App() {
             <AlertCircle size={16} color="#f59e0b" />
           </div>
           <div className="metric-value">{formatCurrency(woMetric.total_receivable)}</div>
-          <div className="metric-sub">{woMetric.stuck_or_paused || 0} stuck/paused projects</div>
+          <div className="metric-sub">{metricsLoading ? 'Analyzing receivables...' : `${woMetric.stuck_or_paused || 0} stuck/paused projects`}</div>
         </div>
       </section>
 
