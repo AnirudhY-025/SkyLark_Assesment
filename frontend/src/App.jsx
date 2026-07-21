@@ -3,12 +3,18 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { 
   Send, RefreshCw, FileText, ChevronDown, ChevronUp, 
-  Database, Activity, TrendingUp, DollarSign, Briefcase, AlertCircle
+  Database, Activity, TrendingUp, DollarSign, Briefcase, AlertCircle,
+  LogOut, ShieldCheck
 } from 'lucide-react';
+import { supabase } from './lib/supabase';
+import AuthModal from './components/AuthModal';
 
 const API_BASE = 'http://localhost:8000';
 
 export default function App() {
+  const [session, setSession] = useState(null);
+  const [isGuest, setIsGuest] = useState(false);
+
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -35,6 +41,18 @@ export default function App() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, loading]);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) setSession(session);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     fetchStatus();
@@ -115,6 +133,12 @@ export default function App() {
     setExpandedTrace(prev => ({ ...prev, [index]: !prev[index] }));
   };
 
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setIsGuest(false);
+  };
+
   const quickPrompts = [
     { label: "📊 Pipeline by Sector", text: "Give me a breakdown of deal pipeline value by sector." },
     { label: "💰 Outstanding AR", text: "What is our total outstanding accounts receivable from work orders?" },
@@ -122,7 +146,6 @@ export default function App() {
     { label: "⚠️ Stuck Work Orders", text: "Which work orders are currently stuck or paused?" }
   ];
 
-  // Helper values for top metrics bar
   const dealsMetric = metrics?.deals || {};
   const woMetric = metrics?.work_orders || {};
 
@@ -133,8 +156,18 @@ export default function App() {
     return `₹${val.toLocaleString()}`;
   };
 
+  const isAuthenticated = session || isGuest;
+
   return (
     <div className="app-layout">
+      {/* ── Render Supabase Auth Modal if not authenticated ── */}
+      {!isAuthenticated && (
+        <AuthModal 
+          onAuthSuccess={(s) => setSession(s)} 
+          onGuestLogin={() => setIsGuest(true)} 
+        />
+      )}
+
       {/* ── Navbar Header ── */}
       <header className="navbar glass-card">
         <div className="brand-section">
@@ -150,6 +183,20 @@ export default function App() {
             <span className="status-dot"></span>
             <span>{status.connected ? "monday.com Connected" : "Connecting..."}</span>
           </div>
+
+          {isAuthenticated && (
+            <div className="user-profile-badge">
+              <div className="user-avatar-small">
+                {(session?.user?.email?.[0] || 'G').toUpperCase()}
+              </div>
+              <span className="user-email-text">
+                {session?.user?.email || 'Demo Executive'}
+              </span>
+              <button className="logout-btn" title="Sign Out" onClick={handleSignOut}>
+                <LogOut size={14} />
+              </button>
+            </div>
+          )}
 
           <button className="action-btn" onClick={handleRefreshCache} title="Clear in-memory cache">
             <RefreshCw size={15} />
