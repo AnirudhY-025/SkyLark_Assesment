@@ -126,15 +126,20 @@ def serve_spa(full_path: str):
     if full_path:
         target_file = frontend_dist / full_path
         if target_file.is_file():
-            return FileResponse(target_file)
+            res = FileResponse(target_file)
+            res.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return res
 
     index_file = frontend_dist / "index.html"
     if index_file.exists():
         response = FileResponse(index_file)
-        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
         return response
 
     return {"message": "Skylark Drones BI Agent API is live. Build frontend/dist to view UI."}
+
 
 
 
