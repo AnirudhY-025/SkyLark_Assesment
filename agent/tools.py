@@ -79,18 +79,22 @@ def get_work_orders(client: MondayClient, filters: dict | None = None) -> str:
         elif col.lower() in ("sector", "type of work", "nature of work", "execution status", "document type", "invoice status", "collection status", "billing status", "wo status (billed)"):
             df[col] = normalize_text(df[col], title_case=False)
 
-    if "Sector" in df.columns:
-        df["Sector"] = normalize_sector(df["Sector"])
+    sector_col = _find_col(df, ["sector", "service", "type of work"])
+    status_col = _find_col(df, ["execution status", "status"])
+    client_col = _find_col(df, ["customer name code", "client code", "client", "customer"])
+
+    if sector_col:
+        df[sector_col] = normalize_sector(df[sector_col])
 
     # Apply filters
     if filters:
-        if filters.get("sector") and "Sector" in df.columns:
+        if filters.get("sector") and sector_col:
             sector = normalize_text(pd.Series([filters["sector"]]), title_case=False).iloc[0]
-            df = df[df["Sector"].str.contains(sector, case=False, na=False)]
-        if filters.get("status") and "Execution Status" in df.columns:
-            df = df[df["Execution Status"].str.contains(filters["status"], case=False, na=False)]
-        if filters.get("client") and "Customer Name Code" in df.columns:
-            df = df[df["Customer Name Code"].str.contains(filters["client"], case=False, na=False)]
+            df = df[df[sector_col].str.contains(sector, case=False, na=False)]
+        if filters.get("status") and status_col:
+            df = df[df[status_col].str.contains(filters["status"], case=False, na=False)]
+        if filters.get("client") and client_col:
+            df = df[df[client_col].str.contains(filters["client"], case=False, na=False)]
 
     # Convert dates to string for JSON serialization
     for col in df.columns:
@@ -121,30 +125,37 @@ def get_deals(client: MondayClient, filters: dict | None = None) -> str:
     if df.empty:
         return _safe_json({"error": "No deals found on the board.", "data": [], "count": 0})
 
+    status_col = _find_col(df, ["deal status", "status"])
+    sector_col = _find_col(df, ["sector/service", "sector"])
+    val_col = _find_col(df, ["masked deal value", "deal value", "value", "amount"])
+    stage_col = _find_col(df, ["deal stage", "stage"])
+    owner_col = _find_col(df, ["owner code", "owner"])
+
     # Normalize
-    if "Deal Status" in df.columns:
-        df["Deal Status"] = normalize_deal_status(df["Deal Status"])
-    if "Sector/service" in df.columns:
-        df["Sector/service"] = normalize_sector(df["Sector/service"])
-    if "Masked Deal value" in df.columns:
-        df["Masked Deal value"] = normalize_currency(df["Masked Deal value"])
-    for col in ["Close Date (A)", "Tentative Close Date", "Created Date"]:
-        if col in df.columns:
+    if status_col:
+        df[status_col] = normalize_deal_status(df[status_col])
+    if sector_col:
+        df[sector_col] = normalize_sector(df[sector_col])
+    if val_col:
+        df[val_col] = normalize_currency(df[val_col])
+    for col in df.columns:
+        if "date" in col.lower() or col.lower().endswith("date"):
             df[col] = normalize_dates(df[col])
-    for col in ["Deal Name", "Owner code", "Client Code", "Deal Stage", "Product deal", "Closure Probability"]:
-        if col in df.columns:
+        elif col in [c for c in [status_col, sector_col, val_col] if c]:
+            continue
+        else:
             df[col] = normalize_text(df[col], title_case=False)
 
     # Apply filters
     if filters:
-        if filters.get("sector") and "Sector/service" in df.columns:
-            df = df[df["Sector/service"].str.contains(filters["sector"], case=False, na=False)]
-        if filters.get("status") and "Deal Status" in df.columns:
-            df = df[df["Deal Status"].str.contains(filters["status"], case=False, na=False)]
-        if filters.get("stage") and "Deal Stage" in df.columns:
-            df = df[df["Deal Stage"].str.contains(filters["stage"], case=False, na=False)]
-        if filters.get("owner") and "Owner code" in df.columns:
-            df = df[df["Owner code"].str.contains(filters["owner"], case=False, na=False)]
+        if filters.get("sector") and sector_col:
+            df = df[df[sector_col].str.contains(filters["sector"], case=False, na=False)]
+        if filters.get("status") and status_col:
+            df = df[df[status_col].str.contains(filters["status"], case=False, na=False)]
+        if filters.get("stage") and stage_col:
+            df = df[df[stage_col].str.contains(filters["stage"], case=False, na=False)]
+        if filters.get("owner") and owner_col:
+            df = df[df[owner_col].str.contains(filters["owner"], case=False, na=False)]
 
     for col in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
@@ -160,6 +171,7 @@ def get_deals(client: MondayClient, filters: dict | None = None) -> str:
         "data_quality_notes": quality.get("notes", [])[:5],
         "columns": list(df.columns),
     })
+
 
 
 def aggregate(client: MondayClient, board: str, group_by: str, metric: str, agg: str = "sum") -> str:
@@ -302,6 +314,16 @@ def cross_reference(client: MondayClient, join_key: str = "Deal Name") -> str:
     })
 
 
+def _find_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
+    if df is None or df.empty:
+        return None
+    for cand in candidates:
+        for col in df.columns:
+            if cand.lower() in col.lower():
+                return col
+    return None
+
+
 def generate_leadership_update(client: MondayClient, scope: str = "all") -> str:
     """Generate a structured leadership update brief."""
     try:
@@ -314,40 +336,45 @@ def generate_leadership_update(client: MondayClient, scope: str = "all") -> str:
 
     # --- Deals metrics ---
     if not deal_df.empty:
-        if "Deal Status" in deal_df.columns:
-            deal_df["Deal Status"] = normalize_deal_status(deal_df["Deal Status"])
-        if "Masked Deal value" in deal_df.columns:
-            deal_df["Masked Deal value"] = normalize_currency(deal_df["Masked Deal value"])
-        if "Sector/service" in deal_df.columns:
-            deal_df["Sector/service"] = normalize_sector(deal_df["Sector/service"])
-        if "Deal Stage" in deal_df.columns:
-            deal_df["Deal Stage"] = normalize_text(deal_df["Deal Stage"], title_case=False)
+        val_col = _find_col(deal_df, ["masked deal value", "deal value", "value", "amount"])
+        status_col = _find_col(deal_df, ["deal status", "status"])
+        sector_col = _find_col(deal_df, ["sector/service", "sector"])
+        stage_col = _find_col(deal_df, ["deal stage", "stage"])
+
+        if status_col:
+            deal_df[status_col] = normalize_deal_status(deal_df[status_col])
+        if val_col:
+            deal_df[val_col] = normalize_currency(deal_df[val_col])
+        if sector_col:
+            deal_df[sector_col] = normalize_sector(deal_df[sector_col])
+        if stage_col:
+            deal_df[stage_col] = normalize_text(deal_df[stage_col], title_case=False)
 
         # Filter by scope if needed
         filtered = deal_df.copy()
-        if scope != "all" and "Sector/service" in filtered.columns:
-            filtered = filtered[filtered["Sector/service"].str.contains(scope, case=False, na=False)]
+        if scope != "all" and sector_col:
+            filtered = filtered[filtered[sector_col].str.contains(scope, case=False, na=False)]
 
         # Pipeline value (open deals)
-        open_deals = filtered[filtered["Deal Status"].str.lower().isin(["open", "on hold"])] if "Deal Status" in filtered.columns else pd.DataFrame()
-        pipeline_value = open_deals["Masked Deal value"].sum() if "Masked Deal value" in open_deals.columns and not open_deals.empty else 0
+        open_deals = filtered[filtered[status_col].str.lower().isin(["open", "on hold"])] if status_col and status_col in filtered.columns else pd.DataFrame()
+        pipeline_value = open_deals[val_col].sum() if val_col and val_col in open_deals.columns and not open_deals.empty else 0
 
         # Pipeline by stage
         pipeline_by_stage = {}
-        if not open_deals.empty and "Deal Stage" in open_deals.columns:
-            stage_vals = open_deals.groupby("Deal Stage")["Masked Deal value"].sum().round(0)
+        if not open_deals.empty and stage_col and val_col and stage_col in open_deals.columns and val_col in open_deals.columns:
+            stage_vals = open_deals.groupby(stage_col)[val_col].sum().round(0)
             pipeline_by_stage = stage_vals.to_dict() if not stage_vals.empty else {}
 
         # Win rate
-        won_count = len(filtered[filtered["Deal Stage"].apply(is_won_stage)]) if "Deal Stage" in filtered.columns else 0
-        lost_count = len(filtered[filtered["Deal Status"].str.lower() == "lost"]) if "Deal Status" in filtered.columns else 0
+        won_count = len(filtered[filtered[stage_col].apply(is_won_stage)]) if stage_col and stage_col in filtered.columns else 0
+        lost_count = len(filtered[filtered[status_col].str.lower() == "lost"]) if status_col and status_col in filtered.columns else 0
         total_decided = won_count + lost_count
         win_rate = round(won_count / total_decided * 100, 1) if total_decided > 0 else 0
 
         # Sector breakdown
         sector_pipeline = {}
-        if "Sector/service" in filtered.columns and "Masked Deal value" in filtered.columns:
-            sp = filtered.groupby("Sector/service")["Masked Deal value"].sum().round(0)
+        if sector_col and val_col and sector_col in filtered.columns and val_col in filtered.columns:
+            sp = filtered.groupby(sector_col)[val_col].sum().round(0)
             sector_pipeline = sp.to_dict() if not sp.empty else {}
 
         update["deals"] = {
@@ -363,25 +390,25 @@ def generate_leadership_update(client: MondayClient, scope: str = "all") -> str:
 
     # --- Work Orders metrics ---
     if not wo_df.empty:
-        billed_col = "Billed Value in Rupees (Excl. of GST.) (Masked)"
-        collected_col = "Collected Amount in Rupees (Incl. of GST.) (Masked)"
-        receivable_col = "Amount Receivable (Masked)"
-        status_col = "Execution Status"
+        billed_col = _find_col(wo_df, ["billed value", "billed", "amount in rupees"])
+        collected_col = _find_col(wo_df, ["collected amount", "collected"])
+        receivable_col = _find_col(wo_df, ["amount receivable", "receivable"])
+        status_col = _find_col(wo_df, ["execution status", "status"])
 
         for col in [billed_col, collected_col, receivable_col]:
-            if col in wo_df.columns:
+            if col and col in wo_df.columns:
                 wo_df[col] = normalize_currency(wo_df[col])
 
-        total_billed = wo_df[billed_col].sum() if billed_col in wo_df.columns else 0
-        total_collected = wo_df[collected_col].sum() if collected_col in wo_df.columns else 0
-        total_receivable = wo_df[receivable_col].sum() if receivable_col in wo_df.columns else 0
+        total_billed = wo_df[billed_col].sum() if billed_col and billed_col in wo_df.columns else 0
+        total_collected = wo_df[collected_col].sum() if collected_col and collected_col in wo_df.columns else 0
+        total_receivable = wo_df[receivable_col].sum() if receivable_col and receivable_col in wo_df.columns else 0
 
         status_dist = {}
-        if status_col in wo_df.columns:
+        if status_col and status_col in wo_df.columns:
             status_dist = wo_df[status_col].value_counts().to_dict()
 
         # Overdue / stuck
-        stuck_count = len(wo_df[wo_df[status_col].str.contains("struck|stuck|pause", case=False, na=False)]) if status_col in wo_df.columns else 0
+        stuck_count = len(wo_df[wo_df[status_col].str.contains("struck|stuck|pause", case=False, na=False)]) if status_col and status_col in wo_df.columns else 0
 
         update["work_orders"] = {
             "total_orders": len(wo_df),
@@ -403,6 +430,7 @@ def generate_leadership_update(client: MondayClient, scope: str = "all") -> str:
     update["data_quality_notes"] = dq_notes[:5]
 
     return _safe_json(update)
+
 
 
 # ── Tool schema for OpenAI function-calling ───────────────────────────

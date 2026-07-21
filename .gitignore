@@ -7,7 +7,7 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 
-# Node modules & build artifacts
+# Node modules
 node_modules/
-dist/
+frontend/node_modules/
 build/
